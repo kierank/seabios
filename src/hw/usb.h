@@ -3,6 +3,7 @@
 #define __USB_H
 
 #include "stacks.h" // struct mutex_s
+#include "list.h" // hlist_node
 
 // Information on a USB end point.
 struct usb_pipe {
@@ -16,6 +17,7 @@ struct usb_pipe {
     u8 speed;
     u16 maxpacket;
     u8 eptype;
+    struct hlist_node node;
 };
 
 // Common information for usb devices.

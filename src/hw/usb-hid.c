@@ -11,8 +11,9 @@
 #include "usb.h" // usb_ctrlrequest
 #include "usb-hid.h" // usb_keyboard_setup
 #include "util.h" // process_key
+#include "malloc.h" // malloc_low
 
-struct usb_pipe *keyboard_pipe VARFSEG;
+struct hlist_head keyboard_list VARFSEG;
 struct usb_pipe *mouse_pipe VARFSEG;
 
 
@@ -62,10 +63,10 @@ static int
 usb_kbd_setup(struct usbdevice_s *usbdev
               , struct usb_endpoint_descriptor *epdesc)
 {
+    int kbd_idx = 0;
+    struct usb_pipe *keyboard_pipe;
+
     if (! CONFIG_USB_KEYBOARD)
-        return -1;
-    if (keyboard_pipe)
-        // XXX - this enables the first found keyboard (could be random)
         return -1;
 
     if (epdesc->wMaxPacketSize < sizeof(struct keyevent)
@@ -91,7 +92,15 @@ usb_kbd_setup(struct usbdevice_s *usbdev
     if (!keyboard_pipe)
         return -1;
 
-    dprintf(1, "USB keyboard initialized\n");
+    struct hlist_node **pprev = &keyboard_list.first;
+    while(*pprev && (*pprev)->next) {
+        kbd_idx++;
+        pprev = &(*pprev)->next;
+    }
+
+    hlist_add(&keyboard_pipe->node, pprev);
+
+    dprintf(1, "USB keyboard %d initialized\n", kbd_idx);
     return 0;
 }
 
@@ -321,12 +330,9 @@ handle_key(struct keyevent *data)
 
 // Check if a USB keyboard event is pending and process it if so.
 static void
-usb_check_key(void)
+usb_check_key(struct usb_pipe *pipe)
 {
     if (! CONFIG_USB_KEYBOARD)
-        return;
-    struct usb_pipe *pipe = GET_GLOBAL(keyboard_pipe);
-    if (!pipe)
         return;
 
     for (;;) {
@@ -344,7 +350,8 @@ usb_kbd_active(void)
 {
     if (! CONFIG_USB_KEYBOARD)
         return 0;
-    return GET_GLOBAL(keyboard_pipe) != NULL;
+    struct hlist_head kbd_list = GET_GLOBAL(keyboard_list);
+    return kbd_list.first != NULL;
 }
 
 // Handle a ps2 style keyboard command.
@@ -451,6 +458,11 @@ usb_mouse_command(int command, u8 *param)
 void
 usb_check_event(void)
 {
-    usb_check_key();
+    struct hlist_head kbd_list = GET_GLOBAL(keyboard_list);
+
+    struct usb_pipe *keyboard_pipe;
+    hlist_for_each_entry(keyboard_pipe, &kbd_list, node) {
+        usb_check_key(keyboard_pipe);
+    }
     usb_check_mouse();
 }
